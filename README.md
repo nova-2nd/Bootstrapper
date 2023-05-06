@@ -22,7 +22,7 @@
 
 ## Ansible provisioning
 
-apt install python3-venv
+apt-get install python3-venv
 python3 -m venv /var/lib/ansible
 source /var/lib/ansible/bin/activate
 pip install -U pip setuptools wheel
