@@ -7,6 +7,9 @@ case $1 in
   cron-provans)
     echo "@reboot /root/base-prov.sh provans" | crontab
     ;;
+  cron-pulldisk)
+    echo "@reboot /root/base-prov.sh pulldisk" | crontab
+    ;;
   decron)
     crontab -r
     ;;
@@ -25,6 +28,7 @@ case $1 in
     rm -rf /var/lib/ansible
     apt-get install python3-venv -y
     python3 -m venv /var/lib/ansible
+    # shellcheck source=/dev/null
     source /var/lib/ansible/bin/activate
     pip install -U pip setuptools wheel
     pip install ansible
