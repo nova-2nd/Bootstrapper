@@ -22,7 +22,7 @@ switch ($param1)
         New-VHD `
             -Path 'C:\Code\Bootstrapper\VMdisk\Bootstrapper-System.vhdx' `
             -Dynamic `
-            -SizeBytes 10GB
+            -SizeBytes 20GB
         Add-VMHardDiskDrive `
             -VMName 'Bootstrapper' `
             -ControllerType 'SCSI' `
