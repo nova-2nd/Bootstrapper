@@ -72,11 +72,17 @@ switch ($param1)
         Set-Volume -DriveLetter $instdisk.DriveLetter -NewFileSystemLabel INSTALLDISK
         New-Item -ItemType Directory -Force -Path "$($instdisk.DriveLetter):\files"
         Copy-Item `
-            -Path "${PSScriptRoot}\preseed.cfg" `
+            -Path "${PSScriptRoot}\*" `
+            -Include 'preseed.cfg', 'base-prov.sh' `
             -Destination "$($instdisk.DriveLetter):\files\"
         Copy-Item `
             -Path "$($tmpfolder)\debian-11.*-amd64-netinst.iso" `
             -Destination "$($instdisk.DriveLetter):\files\"
+        Copy-Item `
+            -Path "${PSScriptRoot}\*" `
+            -Include 'prov' `
+            -Destination "$($instdisk.DriveLetter):\files\" `
+            -Recurse
         Copy-Item `
             -Path "$($isodrletter):\*" `
             -Include 'boot', 'EFI' `
