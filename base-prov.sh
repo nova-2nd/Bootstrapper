@@ -5,14 +5,17 @@ cachedisk="/dev/disk/by-label/$cachelabel"
 cachepath='/var/cache/apt-cacher-ng'
 
 # Remove our cron hook... if there is one
-if crontab -l > /dev/null 2>&1; then crontab -r; fi
+crontab -l > /dev/null 2>&1 && crontab -r; echo 'Cron hook removed' >> /root/prov.log 2>&1
+
+# Check if we are in a chroot jail
+[ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ] && jailed=1 || jailed=0
 
 case $1 in
   cron-provans)
-    echo '@reboot DEBIAN_FRONTEND=noninteractive /root/base-prov.sh provans > /root/prov.log 2>&1' | crontab
+    echo '@reboot DEBIAN_FRONTEND=noninteractive /root/base-prov.sh provans >> /root/prov.log 2>&1' | crontab
   ;;
   cron-pulldisk)
-    echo '@reboot DEBIAN_FRONTEND=noninteractive /root/base-prov.sh pulldisk > /root/prov.log 2>&1' | crontab
+    echo '@reboot DEBIAN_FRONTEND=noninteractive /root/base-prov.sh pulldisk >> /root/prov.log 2>&1' | crontab
   ;;
   decron)
     crontab -r
@@ -42,9 +45,9 @@ case $1 in
     ### Provision ansible
   ;;
   provcache)
-    if [ -h $cachedisk ]; then
-        if [ "$( blkid -o export $cachedisk | grep 'TYPE=' )" = 'TYPE=vfat' ]; then mkfs.xfs -qf -L 'CACHEDISK' $cachedisk; fi
-        if [ ! -d '/var/cache/apt-cacher-ng' ]; then mkdir '/var/cache/apt-cacher-ng'; fi
+    if [ -h $cachedisk ] && [ $jailed = 0 ]; then
+        [ "$( blkid -o export $cachedisk | grep 'TYPE=' )" = 'TYPE=vfat' ] && mkfs.xfs -qf -L $cachelabel $cachedisk
+        [ ! -d '/var/cache/apt-cacher-ng' ] && mkdir '/var/cache/apt-cacher-ng'
         echo "$cachedisk $cachepath xfs defaults 0 0" >> /etc/fstab
         mount "$cachedisk"
         chown -R '19484:109' "$cachepath"
@@ -56,4 +59,5 @@ case $1 in
   ;;
 esac
 
-if [ "$2" = 'seppuku' ]; then rm -f "$0"; fi
+# Remove ourself
+# [ "$2" = 'seppuku' ] && rm -f "$0"
