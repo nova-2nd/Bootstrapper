@@ -101,7 +101,7 @@ switch ($args[0])
         $null=New-Item -ItemType Directory -Force -Path "$($diskhandle.DriveLetter):\files"
         Copy-Item `
             -Path "${PSScriptRoot}\*" `
-            -Include 'preseed.cfg', 'base-prov.sh' `
+            -Include 'preseed.cfg', 'shellglue.sh' `
             -Destination "$($diskhandle.DriveLetter):\files\"
         Copy-Item `
             -Path "$($tmpfolder)\debian-11.*-amd64-netinst.iso" `
