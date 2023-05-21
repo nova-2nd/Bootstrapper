@@ -3,49 +3,13 @@
 echo '################################################################################'
 echo "# shellglue task $1 executing..."
 
-cachefs=xfs
-cachelabel=CACHEDISK
-cachedisk=/dev/disk/by-label/$cachelabel
-cachemount=/var/cache
+systemdisk=/dev/sda
 logfile=/var/log/installer/shellglue.log
-gotojail=0
-
-# getopts
-# shift $cachelabel
-
-# Check if we are in a chroot jail
-# [ "$(stat -c %d:%i /)" != "$(stat -c %d:%i /proc/1/root/.)" ] && jailed=1 || jailed=0 #  && [ $jailed = 0 ]
 
 case "$1" in
-  prov-cache-disk)
-    [ "$( blkid -o export $cachedisk | grep 'TYPE=' )" != "TYPE=$cachefs" ] && mkfs.$cachefs -qf -L $cachelabel $cachedisk; echo "Formatted $cachedisk as $cachefs"
-    [ ! -d $cachepath ] && mkdir $cachepath; echo "Added cachefolder $cachepath"
-    [ "$( cat /target/etc/fstab | grep -w $cachedisk )" = '' ] && echo "$cachedisk /var/cache/apt-cacher-ng $cachefs defaults 0 0" >> target/etc/fstab; echo "Added fstab entry for $cachedisk"
-    mount "$cachedisk" $cachepath
-  ;;
-  provcache)
-    if [ -h $cachedisk ]; then
-        chown -R '19484:109' "$cachepath"
-        chmod -R 2775 "$cachepath"
-        # "$0" breakpoint
-        # echo 'apt-cacher-ng apt-cacher-ng/tunnelenable boolean false' | debconf-set-selections
-        in-target --pass-stdout apt-get -qy install apt-cacher-ng
-        echo 'Acquire::http { Proxy "http://127.0.0.1:3142"; }' > /etc/apt/apt.conf.d/99proxy
-    fi
-  ;;
-  pulldisk)
-    ### Pull files
-    ### Pull provisiongin files from installdisk
-    mount /dev/disk/by-label/INSTALLDISK /mnt/
-    cp -r /mnt/files/prov /root/
-    umount /mnt/
-    ###
-    ### Pull files
-  ;;
   playprov)
-    "$0" provcache
-    # "$0" envdump
-    # "$0" breakpoint
+    "$0" enable-deb-proxy
+    # "$0" provans
   ;;
   provans)
     ### Provision ansible
@@ -62,28 +26,117 @@ case "$1" in
     ###
     ### Provision ansible
   ;;
+  enable-deb-proxy)
+    # sed -i \
+    #   -e '/^#/d' \
+    #   -e '/^$/d' \
+    #   -e '/^deb http:\/\/127.0.0.1:3142\//! s|http://|http://127.0.0.1:3142/|g' \
+    #   /etc/apt/sources.list
+    echo 'Acquire::http::Proxy "http://localhost:8000/";' > /etc/apt/apt.conf.d/99squidcache
+    echo 'APT::Keep-Downloaded-Packages "0";' > /etc/apt/apt.conf.d/99nolocalcache
+    sleep 10
+    apt-get update
+  ;;
   di-early-hook)
     echo 'This is the early hook on stdout'
     echo 'This is the early hook on stderr' >&2
-
-    # "$0" envdump
-    # "$0" breakpoint
+    "$0" di-patch
   ;;
   di-partman-hook)
     echo 'This is the partman hook on stdout'
     echo 'This is the partman hook on stderr' >&2
-
-    # "$0" envdump
-    "$0" breakpoint
+    "$0" di-partition-disk
+    cp -r /hd-media/files/prov/final-partman/* /var/lib/partman/
   ;;
   di-late-hook)
     echo 'This is the late hook on stdout'
     echo 'This is the late hook on stderr' >&2
     cp "$0" /target/root/
-    # "$0" playprov
-
-    # "$0" envdump
-    # "$0" breakpoint
+    in-target --pass-stdout /root/shellglue.sh cron playprov
+  ;;
+  di-patch)
+    cp /hd-media/files/prov/kernel-mod/*.ko /lib/modules/5.10.0-22-amd64/
+    depmod -a
+    cp /hd-media/files/prov/thin_check/libexpat.so.1 /usr/lib/x86_64-linux-gnu/
+    cp /hd-media/files/prov/thin_check/libstdc\+\+.so.6 /lib/x86_64-linux-gnu/
+    cp /hd-media/files/prov/thin_check/pdata_tools /usr/sbin/thin_check
+    chmod +x /usr/sbin/thin_check
+  ;;
+  di-partition-disk)
+    "$0" sfdisk-recipe-1
+    "$0" lvm-recipe-1
+  ;;
+  sfdisk-recipe-1)
+    sfdisk -X gpt $systemdisk << EOF
+size=256M, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+size=512M, type=BC13C2FF-59E6-4262-A352-B275FD6F7172
+type=E6D6D379-F507-44C2-A23C-238F2A3DF928
+EOF
+  ;;
+  lvm-recipe-1)
+    pvcreate /dev/sda3
+    vgcreate vgdisk /dev/sda3
+    lvcreate --thin-pool tpool0 --extents +100%FREE --poolmetadatasize 256M vgdisk
+    lvcreate --thin --name swap --virtualsize 3GiB vgdisk/tpool0
+    lvcreate --thin --name root --virtualsize 10GiB vgdisk/tpool0
+    lvcreate --thin --name var_log --virtualsize 4GiB vgdisk/tpool0
+    lvcreate --thin --name home --virtualsize 4GiB vgdisk/tpool0
+    vgchange -ay
+    # mkfs.xfs -f /dev/disk/by-label/CACHEDISK -L CACHEDISK
+  ;;
+  parted-recipe-1)
+    parted -s $systemdisk mklabel gpt \
+      mkpart ESP 0% 1% set 1 esp on \
+      mkpart BOOT 1% 3% set 2 bls_boot on \
+      mkpart LVM 3% 100% set 3 lvm on
+  ;;
+  fdisk-recipe-1)
+    printf 'g\nw\n' | fdisk $systemdisk
+    printf 'n\n1\n\n+256M\nw\n' | fdisk $systemdisk
+    printf 'n\n2\n\n+512M\nw\n' | fdisk $systemdisk
+    printf 'n\n3\n\n\nw\n' | fdisk $systemdisk
+    printf 't\n1\n1\nw\n' | fdisk $systemdisk
+    printf 't\n2\n48\nw\n' | fdisk $systemdisk
+    printf 't\n3\n30\nw\n' | fdisk $systemdisk
+  ;;
+  format-recipe-1)
+    mkfs.fat /dev/sda1
+    mkfs.xfs /dev/sda2
+    mkfs.xfs /dev/mapper/vgdisk-root
+    mkfs.xfs /dev/mapper/vgdisk-home
+    mkfs.xfs /dev/mapper/vgdisk-var_log
+    # mkfs.xfs /dev/disk/by-label/CACHEDISK -L CACHEDISK
+    mkswap /dev/mapper/vgdisk-swap
+  ;;
+  di-mount-chroot)
+    mkdir /target
+    mount -t xfs /dev/mapper/vgdisk-root /target
+    mkdir /target/boot
+    mount -t xfs /dev/sda2 /target/boot
+    mkdir /target/boot/efi
+    mount -t vfat /dev/sda1 /target/boot/efi
+    mkdir /target/home
+    mount -t xfs /dev/mapper/vgdisk-home /target/home
+    mkdir -p /target/var/log
+    mount -t xfs /dev/mapper/vgdisk-var_log /target/var/log
+    mkdir /target/var/cache
+    mount -t xfs /dev/disk/by-label/CACHEDISK /target/var/cache
+    mkdir /target/dev
+    mount --bind /dev /target/dev
+    mount --bind /dev/pts /target/dev/pts
+    mkdir /target/proc
+    mount --bind /proc /target/proc
+    mkdir /target/sys
+    mount --bind /sys /target/sys
+  ;;
+  pulldisk)
+    ### Pull files
+    ### Pull provisiongin files from installdisk
+    mount /dev/disk/by-label/INSTALLDISK /mnt/
+    cp -r /mnt/files/prov /root/
+    umount /mnt/
+    ###
+    ### Pull files
   ;;
   breakpoint)
     # break free with echo -e '\n' > /var/breakfifo
@@ -103,8 +156,3 @@ esac
 
 echo "# shellglue task $1 done"
 echo '################################################################################'
-
-
-# blkid
-# /sbin/blkid
-
