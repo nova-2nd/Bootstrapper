@@ -9,7 +9,15 @@ logfile=/var/log/installer/shellglue.log
 case "$1" in
   playprov)
     "$0" enable-deb-proxy
-    # "$0" provans
+    "$0" provans
+  ;;
+  enable-deb-proxy)
+    echo 'Acquire::http::Proxy "http://localhost:8000/";' > /etc/apt/apt.conf.d/99squidcache
+    echo 'APT::Keep-Downloaded-Packages "0";' > /etc/apt/apt.conf.d/99nolocalcache
+    systemctl disable squid
+    echo 'shutdown_lifetime 0' >> /etc/squid-deb-proxy/squid-deb-proxy.conf
+    while ! systemctl -q is-active squid-deb-proxy.service; do echo 'Waiting...'; sleep 1; done
+    apt-get update
   ;;
   provans)
     ### Provision ansible
@@ -25,17 +33,6 @@ case "$1" in
     for file in /var/lib/ansible/bin/ansible*; do ln -sf "$file" "/usr/local/bin/${file##*/}"; done
     ###
     ### Provision ansible
-  ;;
-  enable-deb-proxy)
-    # sed -i \
-    #   -e '/^#/d' \
-    #   -e '/^$/d' \
-    #   -e '/^deb http:\/\/127.0.0.1:3142\//! s|http://|http://127.0.0.1:3142/|g' \
-    #   /etc/apt/sources.list
-    echo 'Acquire::http::Proxy "http://localhost:8000/";' > /etc/apt/apt.conf.d/99squidcache
-    echo 'APT::Keep-Downloaded-Packages "0";' > /etc/apt/apt.conf.d/99nolocalcache
-    sleep 10
-    apt-get update
   ;;
   di-early-hook)
     echo 'This is the early hook on stdout'
